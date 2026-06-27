@@ -1,0 +1,36 @@
+# Build + packaging check for every plugin in this repo.
+#
+# Build-only by design: `python -m build` packages the source without importing
+# it, so this needs zero gdx_dispatch (core) dependencies and stays hermetic.
+# It validates each plugin's packaging metadata and that the gdx.modules
+# entry-point is declared. Importing a plugin's manifest pulls in core's DB
+# engine, so contract/runtime testing happens against the plugin-host, not here.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [gdx-plugin-example, gdx-plugin-hvac]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build ${{ matrix.plugin }}
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build "${{ matrix.plugin }}"
+      - name: Check metadata
+        run: |
+          python -m twine check "${{ matrix.plugin }}"/dist/*
+      - name: Assert gdx.modules entry-point is registered
+        run: |
+          grep -q 'project.entry-points."gdx.modules"' "${{ matrix.plugin }}/pyproject.toml"
