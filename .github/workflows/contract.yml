@@ -1,0 +1,32 @@
+# Contract tests — run a plugin against the real core plugin_api surface.
+#
+# Unlike build.yml (which only packages), this IMPORTS the plugin, so it needs
+# gdx_dispatch.plugin_api on the path. That surface is stdlib-only (no DB /
+# FastAPI), so we shallow-clone core and put it on PYTHONPATH instead of doing a
+# full core install. Plugins whose import pulls in core's DB/web stack (e.g. ones
+# with a router) can't be contract-tested this cheaply — verify those against the
+# plugin-host in core.
+name: contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  hvac-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Shallow-clone core for the plugin_api contract
+        run: git clone --depth 1 https://github.com/freePerro/gdx_dispatch.git _core
+      - name: Run hvac manifest-shape contract test
+        run: |
+          python -m pip install --upgrade pip pytest
+          # _core is the core repo root (contains the gdx_dispatch/ package);
+          # gdx-plugin-hvac holds the gdx_plugin_hvac package under test.
+          PYTHONPATH="$PWD/_core:$PWD/gdx-plugin-hvac" \
+            python -m pytest gdx-plugin-hvac/tests -v

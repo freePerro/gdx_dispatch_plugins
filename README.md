@@ -62,7 +62,12 @@ venv.
 
 ## CI
 
-`.github/workflows/build.yml` builds and `twine check`s every plugin on each
-push/PR. It's build-only (hermetic — no core deps), since importing a manifest
-pulls in core's DB engine. Contract/runtime verification happens against the
-plugin-host in core.
+- `.github/workflows/build.yml` — builds and `twine check`s every plugin on each
+  push/PR. Build-only and hermetic (no core deps), since packaging never imports
+  the code.
+- `.github/workflows/contract.yml` — imports a plugin and asserts its manifest
+  shape against the real `gdx_dispatch.plugin_api`. That surface is stdlib-only,
+  so it shallow-clones core onto `PYTHONPATH` rather than installing it. Covers
+  `gdx-plugin-hvac` today; data-only packs fit here. Plugins whose import pulls
+  in core's DB/web stack (e.g. ones with a router) are verified against the
+  plugin-host in core instead.
