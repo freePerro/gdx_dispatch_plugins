@@ -13,6 +13,7 @@ see core's `ADR-013` (third-party module plugins) for the architecture.
 | --- | --- |
 | [`gdx-plugin-example`](gdx-plugin-example) | Reference plugin — exercises the full plugin contract end to end (router + models + UI). |
 | [`gdx-plugin-hvac`](gdx-plugin-hvac) | Reference Catalog Pack (ADR-015) — contributes an HVAC catalog type + pricing strategy as data; no router. |
+| [`gdx-plugin-n8n`](gdx-plugin-n8n) | In-app n8n Automations console — subscribes to every business event, mirrors them into its own table, and renders Activity / Available Events / Connect / Setup screens. The WordPress-model integration surface for the n8n flagship. |
 
 > The proprietary `gdx-plugin-chi-pricing` plugin lives outside version control
 > and is **not** part of this repo.
