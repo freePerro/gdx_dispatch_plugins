@@ -20,3 +20,14 @@ example = "gdx_plugin_example:manifest"
 
 [tool.setuptools]
 packages = ["gdx_plugin_example"]
+
+# Storefront listing. Read WITHOUT importing the plugin — the manifest is
+# executable Python, and a storefront must not run third-party code just to
+# show a card. `key`, `distribution` and `version` are derived (entry-point
+# name + wheel metadata) so they cannot drift from what actually installs.
+[tool.gdx.catalog]
+name = "Example"
+tier = "professional"
+permissions = []
+description = "Reference plugin — exercises the full plugin contract end to end (router + models + UI)."
+author = "GDX Dispatch"

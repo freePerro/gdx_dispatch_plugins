@@ -1,0 +1,95 @@
+# Publish the storefront catalog.
+#
+# This repo IS the curation authority for the in-app plugin storefront: a plugin
+# is listed if and only if it is merged here and released by this workflow.
+# Nothing else writes catalog.json.
+#
+# On a tag: build every published plugin's wheel, attach the wheels to the
+# GitHub Release, generate catalog.json pointing at those assets, and publish it
+# to GitHub Pages (served at the catalog domain the app fetches).
+#
+# On a PR: build and validate the catalog WITHOUT publishing, so a listing that
+# would be refused (declared dependency, unknown permission, drifted metadata)
+# fails review rather than the release.
+name: catalog
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write   # attach wheels to the release
+  pages: write
+  id-token: write
+
+env:
+  # Published plugins only. The private plugin in this repo is never listed.
+  PLUGINS: gdx-plugin-example gdx-plugin-hvac gdx-plugin-n8n
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build every published plugin
+        run: |
+          python -m pip install --upgrade pip build
+          for p in $PLUGINS; do python -m build --wheel "$p"; done
+
+      - name: Verify each listing matches the plugin it installs
+        run: |
+          # Needs core's plugin_api (and FastAPI for router-bearing plugins) to
+          # import each manifest and compare it with the declared listing — the
+          # permissions an owner approves before install must be the real ones.
+          git clone --depth 1 https://github.com/freePerro/gdx_dispatch.git _core
+          python -m pip install pytest fastapi pydantic sqlalchemy
+          PP="$PWD/_core"; for p in $PLUGINS; do PP="$PP:$PWD/$p"; done
+          PYTHONPATH="$PP" python -m pytest tools/test_catalog_matches_manifest.py -v
+
+      - name: Unit-test the catalog builder
+        run: PYTHONPATH="$PWD/tools" python -m pytest tools/test_build_catalog.py -v
+
+      - name: Generate catalog.json
+        run: |
+          # Wheels are served as release assets; the catalog is the index that
+          # points at them. On a PR there is no tag, so a placeholder base URL
+          # is used — the file is validated, never published.
+          TAG="${GITHUB_REF_NAME}"
+          case "$GITHUB_REF" in
+            refs/tags/*) BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" ;;
+            *)           BASE="https://example.invalid/pr-validation" ;;
+          esac
+          mkdir -p _site
+          python tools/build_catalog.py --base-url "$BASE" --out _site/catalog.json $PLUGINS
+          cat _site/catalog.json
+
+      - name: Attach wheels to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
+            --notes "Plugin wheels for the in-app storefront." || true
+          gh release upload "${GITHUB_REF_NAME}" gdx-plugin-*/dist/*.whl --clobber
+
+      - name: Upload the catalog for Pages
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  publish:
+    needs: catalog
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
