@@ -66,6 +66,10 @@ jobs:
           esac
           mkdir -p _site
           python tools/build_catalog.py --base-url "$BASE" --out _site/catalog.json $PLUGINS
+          # Pages serves exactly what this artifact contains, so the custom
+          # domain has to travel with it — without CNAME the site reverts to
+          # the github.io host on every deploy.
+          cp CNAME _site/CNAME
           cat _site/catalog.json
 
       - name: Attach wheels to the release
