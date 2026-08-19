@@ -16,3 +16,13 @@ n8n = "gdx_plugin_n8n:manifest"
 
 [tool.setuptools]
 packages = ["gdx_plugin_n8n"]
+
+# Storefront listing — see build_catalog.py for why this is declared statically
+# rather than read from the manifest. `permissions` is shown to the owner
+# BEFORE install, which is the whole point of declaring it here.
+[tool.gdx.catalog]
+name = "n8n Automations"
+tier = "starter"
+permissions = ["events"]
+description = "Watch the live GDX event stream your n8n workflows trigger on, plus setup and an event catalog."
+author = "GDX Dispatch"

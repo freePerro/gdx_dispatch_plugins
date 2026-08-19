@@ -34,9 +34,41 @@ volume at host boot.
 ## Installation (production)
 
 Operators don't clone this repo. A plugin is installed in-app (owner-only admin
-UI) or by uploading its built wheel; core records the intent and the plugin-host
-materializes it on restart via `reconcile.py`. See core's
-`docs/plugin_file_install.md`.
+UI) — from the storefront, or by uploading its built wheel; core records the
+intent and the plugin-host materializes it on restart via `reconcile.py`. See
+core's `gdx_dispatch/docs/plugin_file_install.md`.
+
+## Getting listed in the in-app storefront
+
+**This repository is the curation authority.** A plugin appears in the app's
+plugin storefront if and only if it is merged here and published by the
+`catalog` workflow — nothing else writes `catalog.json`.
+
+To be listable, a plugin needs a `[tool.gdx.catalog]` table in its
+`pyproject.toml`:
+
+```toml
+[tool.gdx.catalog]
+name = "n8n Automations"          # the card title
+tier = "starter"                  # starter | professional | business
+permissions = ["events"]          # shown to the owner BEFORE they install
+description = "One sentence for the card."
+author = "GDX Dispatch"
+```
+
+Declared statically on purpose: a plugin's manifest is executable Python, and
+the storefront must not run third-party code just to show a card. `key`,
+`distribution` and `version` are **not** declared — they are derived from the
+`gdx.modules` entry-point name and the wheel's own metadata, so they cannot
+drift from what actually installs. CI imports each manifest and fails the build
+if the declared name, tier or permissions disagree with it.
+
+**Your wheel must declare no dependencies** (`Requires-Dist` empty). This is not
+style: plugin-host has no network egress, and `pip install --target` sets
+`ignore_installed`, so pip does not treat a package already present in the image
+as satisfying a requirement — any declared dependency reaches for the index and
+fails the install. Libraries vendored in the plugin-host image are what you may
+**import**, never what you may **declare**. CI enforces this.
 
 To build a distributable wheel locally:
 
