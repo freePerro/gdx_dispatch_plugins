@@ -32,6 +32,7 @@ PUBLISHED = [
     ("gdx-plugin-example", "gdx_plugin_example"),
     ("gdx-plugin-hvac", "gdx_plugin_hvac"),
     ("gdx-plugin-n8n", "gdx_plugin_n8n"),
+    ("gdx-plugin-cellcomms", "gdx_plugin_cellcomms"),
 ]
 
 
@@ -57,14 +58,43 @@ def test_declared_listing_matches_the_manifest(plugin_dir, module):
     assert declared["name"] == manifest.name, (
         f"{plugin_dir}: catalog name {declared['name']!r} != manifest name {manifest.name!r}"
     )
-    assert declared["tier"] == manifest.tier, (
-        f"{plugin_dir}: catalog tier {declared['tier']!r} != manifest tier {manifest.tier!r}"
+    # `tier` is optional since core dropped plan tiers (2026-09-06); a listing
+    # that still declares one must at least agree with its manifest.
+    if "tier" in declared:
+        assert declared["tier"] == manifest.tier, (
+            f"{plugin_dir}: catalog tier {declared['tier']!r} != manifest tier {manifest.tier!r}"
+        )
+    # The host-version floor in the catalog must be the one discovery enforces.
+    # (Nothing renders or gates on the catalog's `requires` today — the
+    # plugin-host's compat gate reads the manifest's — so a mismatch here would
+    # be a listing that documents a floor other than the one that applies.)
+    assert declared.get("requires", "") == manifest.requires, (
+        f"{plugin_dir}: catalog requires {declared.get('requires', '')!r} != manifest "
+        f"requires {manifest.requires!r}"
     )
     # The one that matters most: an owner consents to this list before install.
     assert sorted(declared.get("permissions", [])) == sorted(manifest.permissions), (
         f"{plugin_dir}: catalog permissions {declared.get('permissions')} != manifest "
         f"permissions {list(manifest.permissions)} — the storefront would show the owner "
         "a different set than the plugin actually asks for"
+    )
+
+
+def test_permission_mirror_matches_core():
+    """build_catalog.py cannot import core (the packaging job has none), so it
+    carries a literal copy of KNOWN_PERMISSIONS. This job has core on the path:
+    if the copy drifts, a listing gets refused for a permission it really has —
+    or worse, accepted for one core no longer knows."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "tools"))
+    from build_catalog import VALID_PERMISSIONS
+
+    from gdx_dispatch.plugin_api.manifest import KNOWN_PERMISSIONS
+
+    assert VALID_PERMISSIONS == set(KNOWN_PERMISSIONS), (
+        f"build_catalog.VALID_PERMISSIONS {sorted(VALID_PERMISSIONS)} != core "
+        f"KNOWN_PERMISSIONS {sorted(KNOWN_PERMISSIONS)} — update the literal"
     )
 
 

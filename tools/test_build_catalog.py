@@ -59,6 +59,7 @@ version = "1.0.0"
     if table:
         fields = {"name": "Demo Plugin", "tier": "starter", "permissions": []}
         fields.update(overrides)
+        fields = {k: v for k, v in fields.items() if v is not None}  # None = leave it out
         toml += "\n[tool.gdx.catalog]\n"
         for k, v in fields.items():
             toml += f"{k} = {json.dumps(v)}\n"
@@ -115,6 +116,15 @@ def test_a_bad_tier_is_refused(tmp_path):
     whl = _wheel(d)
     with pytest.raises(CatalogError, match="tier"):
         build_entry(d, whl, BASE)
+
+
+def test_a_missing_tier_is_accepted(tmp_path):
+    """Core dropped plan tiers on 2026-09-06 (PluginManifest accepts and ignores
+    `tier`), so a listing need not carry one; the entry keeps the field as ""
+    so the catalog shape does not change."""
+    d = _plugin(tmp_path, tier=None)
+    entry = build_entry(d, _wheel(d), BASE)
+    assert entry["tier"] == ""
 
 
 def test_a_plugin_with_no_catalog_table_is_refused(tmp_path):

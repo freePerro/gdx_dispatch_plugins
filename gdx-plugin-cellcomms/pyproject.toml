@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdx-plugin-cellcomms"
+version = "0.1.0"
+description = "Personal-cell texts and calls in GDX: live incoming feed via android-nomad-gateway, plus SMS Backup & Restore XML backfill."
+requires-python = ">=3.11"
+dependencies = []
+
+# Registers under the gdx.modules entry-point group so plugin-host discovery
+# finds `manifest` after `pip install`.
+[project.entry-points."gdx.modules"]
+cellcomms = "gdx_plugin_cellcomms:manifest"
+
+[tool.setuptools]
+packages = ["gdx_plugin_cellcomms"]
+
+# Storefront listing — see tools/build_catalog.py for why this is declared
+# statically rather than read from the manifest. `permissions` is shown to the
+# owner BEFORE install, which is the whole point of declaring it here. No
+# `tier`: core dropped plan tiers on 2026-09-06 (PluginManifest accepts and
+# ignores the field), so a listing no longer carries one.
+[tool.gdx.catalog]
+name = "Cell Texts & Calls"
+permissions = ["events"]
+requires = "gdx>=1.122.0"   # must equal the manifest's; CI compares them
+description = "Texts and calls from the owner's personal Android cell, next to the Phone.com line: live incoming feed via android-nomad-gateway, plus SMS Backup & Restore XML import for history and outgoing."
+author = "GDX Dispatch"
