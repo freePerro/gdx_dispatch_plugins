@@ -1,11 +1,11 @@
 # gdx-plugin-cellcomms — personal-cell texts & calls in GDX
 
-**Status:** MERGED core #752 (2026-09-20) · moved here in gdx_dispatch_plugins
-PR #5 (core removal: gdx_dispatch PR #763) · not yet listed — the storefront
-card lands with this repo's next `v*` tag. The cell-comms nomad-gateway plan in
-core's `docs/design/` holds the reasoning; update both status lines when this
-is tagged. Owed before prod use: AVD nomad-payload verification, browser walk,
-the three deploy checks below (5–7).
+**Status:** LISTED from v0.2.0 (2026-09-21) · built in core #752, moved here in
+PR #5 (core removal: gdx_dispatch #763) · needs core ≥ 1.122.0, which prod and
+demo run since 2026-09-21 with `APP_VERSION` reaching plugin-host. Not yet
+installed on prod. The cell-comms nomad-gateway plan in core's `docs/design/`
+holds the reasoning. Owed before prod use: AVD nomad-payload verification,
+browser walk, the three deploy checks below (5–7).
 
 Texts and calls from the owner's personal Android cell, alongside the
 Phone.com business line. Two feeds, one pair of tables
