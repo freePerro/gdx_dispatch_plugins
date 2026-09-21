@@ -20,7 +20,7 @@ on:
     branches: [main]
   pull_request:
   # Core changes never fire this workflow, and once core drops its in-tree copy
-  # of cellcomms (core PR #TBD) this repo's CI is that plugin's only guard. A
+  # of cellcomms (core PR #763) this repo's CI is that plugin's only guard. A
   # weekly run against core main surfaces a broken contract within days rather
   # than on the next PR here; dispatch lets a core PR author check on demand.
   schedule:

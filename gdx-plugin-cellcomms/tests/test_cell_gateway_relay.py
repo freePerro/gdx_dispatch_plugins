@@ -4,7 +4,7 @@ real router, and a plug_cellcomms_* row lands.
 Core's gdx_dispatch/tests/test_cell_gateway.py keeps the shim's own contract
 tests (secret policy, size cap, header stamping, audit, how each upstream
 verdict maps to the phone's response) against a recording stub — from the core
-PR that removed the in-tree plugin (#TBD). This file is the half that needs
+PR that removed the in-tree plugin (freePerro/gdx_dispatch#763). This file is the half that needs
 the real plugin: it mounts the real router where the
 plugin-host mounts it and drives the real shim — imported from core, which the
 contract job puts on PYTHONPATH — over an in-process ASGI transport. No mock

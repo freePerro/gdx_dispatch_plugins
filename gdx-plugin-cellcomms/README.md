@@ -1,7 +1,7 @@
 # gdx-plugin-cellcomms — personal-cell texts & calls in GDX
 
 **Status:** MERGED core #752 (2026-09-20) · moved here in gdx_dispatch_plugins
-PR #TBD (core removal: gdx_dispatch PR #TBD) · not yet listed — the storefront
+PR #5 (core removal: gdx_dispatch PR #763) · not yet listed — the storefront
 card lands with this repo's next `v*` tag. The cell-comms nomad-gateway plan in
 core's `docs/design/` holds the reasoning; update both status lines when this
 is tagged. Owed before prod use: AVD nomad-payload verification, browser walk,
