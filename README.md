@@ -14,6 +14,7 @@ see core's `ADR-013` (third-party module plugins) for the architecture.
 | [`gdx-plugin-example`](gdx-plugin-example) | Reference plugin — exercises the full plugin contract end to end (router + models + UI). |
 | [`gdx-plugin-hvac`](gdx-plugin-hvac) | Reference Catalog Pack (ADR-015) — contributes an HVAC catalog type + pricing strategy as data; no router. |
 | [`gdx-plugin-n8n`](gdx-plugin-n8n) | In-app n8n Automations console — subscribes to every business event, mirrors them into its own table, and renders Activity / Available Events / Connect / Setup screens. The WordPress-model integration surface for the n8n flagship. |
+| [`gdx-plugin-cellcomms`](gdx-plugin-cellcomms) | Texts and calls from the owner's personal Android cell, next to the Phone.com line — live incoming feed relayed by core's cell-gateway webhook, plus SMS Backup & Restore XML import for history and outgoing. Built in core PR #752, moved here 2026-09-20. |
 
 > The proprietary `gdx-plugin-chi-pricing` plugin lives outside version control
 > and is **not** part of this repo.
@@ -50,7 +51,7 @@ To be listable, a plugin needs a `[tool.gdx.catalog]` table in its
 ```toml
 [tool.gdx.catalog]
 name = "n8n Automations"          # the card title
-tier = "starter"                  # starter | professional | business
+tier = "starter"                  # optional — core ignores tiers since 2026-09-06
 permissions = ["events"]          # shown to the owner BEFORE they install
 description = "One sentence for the card."
 author = "GDX Dispatch"
@@ -61,7 +62,7 @@ the storefront must not run third-party code just to show a card. `key`,
 `distribution` and `version` are **not** declared — they are derived from the
 `gdx.modules` entry-point name and the wheel's own metadata, so they cannot
 drift from what actually installs. CI imports each manifest and fails the build
-if the declared name, tier or permissions disagree with it.
+if the declared name or permissions (or a declared tier) disagree with it.
 
 **Your wheel must declare no dependencies** (`Requires-Dist` empty). This is not
 style: plugin-host has no network egress, and `pip install --target` sets
@@ -101,6 +102,9 @@ venv.
 - `.github/workflows/contract.yml` — imports a plugin and asserts its manifest
   shape against the real `gdx_dispatch.plugin_api`. That surface is stdlib-only,
   so it shallow-clones core onto `PYTHONPATH` rather than installing it. Covers
-  `gdx-plugin-hvac` today; data-only packs fit here. Plugins whose import pulls
-  in core's DB/web stack (e.g. ones with a router) are verified against the
-  plugin-host in core instead.
+  `gdx-plugin-hvac` (manifest shape, stdlib-only) and `gdx-plugin-cellcomms`
+  (its whole suite, router and the core shim relay included). A router-bearing
+  plugin's job installs core's **requirement set** (`requirements.txt`, the
+  same set the plugin-host image installs) and nothing else, so importing a
+  library the image lacks fails in CI instead of silently dropping the plugin
+  at host boot.

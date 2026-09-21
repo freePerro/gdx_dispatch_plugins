@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        plugin: [gdx-plugin-example, gdx-plugin-hvac, gdx-plugin-n8n]
+        plugin: [gdx-plugin-example, gdx-plugin-hvac, gdx-plugin-n8n, gdx-plugin-cellcomms]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

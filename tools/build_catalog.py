@@ -39,9 +39,12 @@ except ModuleNotFoundError:  # pragma: no cover
 
 SCHEMA_VERSION = 1
 VALID_TIERS = {"starter", "professional", "business"}
-#: Mirrors gdx_dispatch.plugin_api.manifest.PERMISSIONS. Kept as a literal so
-#: this script stays importable without core on the path (CI has no core here).
-VALID_PERMISSIONS = {"browser", "events", "schedules", "services"}
+#: Mirrors gdx_dispatch.plugin_api.manifest.KNOWN_PERMISSIONS. Kept as a literal
+#: so this script stays importable without core on the path (the packaging job
+#: has no core). tools/test_catalog_matches_manifest.py asserts the two sets are
+#: equal whenever core IS on the path (the catalog job), because a mirror drifts:
+#: "email" entered core on 2026-08-18 and was missing here until 2026-09-20.
+VALID_PERMISSIONS = {"browser", "email", "events", "schedules", "services"}
 
 
 class CatalogError(Exception):
@@ -84,7 +87,7 @@ def _catalog_table(pyproject: dict, plugin_dir: str) -> dict:
     if not table:
         raise CatalogError(
             f"{plugin_dir}: missing [tool.gdx.catalog]. The storefront shows a plugin's "
-            "display name, tier and permissions BEFORE install, so they must be readable "
+            "display name and permissions BEFORE install, so they must be readable "
             "without importing (and therefore running) the plugin."
         )
     return table
@@ -105,8 +108,12 @@ def build_entry(plugin_dir: pathlib.Path, wheel: pathlib.Path, base_url: str) ->
             "dependency, or get it vendored into the plugin-host image first."
         )
 
-    tier = table.get("tier")
-    if tier not in VALID_TIERS:
+    # Optional since 2026-09-06: core dropped plan tiers (PluginManifest accepts
+    # and ignores `tier`), so a listing need not carry one. A declared value is
+    # still validated so a typo cannot ride along; absent stays "" in the entry
+    # so the catalog shape does not change.
+    tier = table.get("tier", "")
+    if tier and tier not in VALID_TIERS:
         raise CatalogError(f"{name}: tier {tier!r} is not one of {sorted(VALID_TIERS)}")
 
     permissions = list(table.get("permissions", []))
