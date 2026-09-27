@@ -1,7 +1,8 @@
 # gdx-plugin-roughprofit — "do we look profitable?"
 
-**Status:** PLAN — code complete on branch `feat/roughprofit`; not merged,
-not released, not installed anywhere (2026-09-26). Needs core ≥ 1.125.0,
+**Status:** MERGED #7 (2026-09-27); listed from the first tag the catalog
+workflow cuts after it (expected v0.3.0). Not installed anywhere yet. Needs
+core ≥ 1.125.0,
 the release it was built and walked against. Design record: core's
 `docs/design/rough-profit-plugin-plan.md`.
 
