@@ -65,3 +65,35 @@ jobs:
           export JWT_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
           PYTHONPATH="$PWD/_core:$PWD/gdx-plugin-cellcomms" \
             python -m pytest gdx-plugin-cellcomms/tests -v
+
+  roughprofit-runtime:
+    runs-on: ubuntu-latest
+    services:
+      # The plan requires SQLite AND Postgres; the suite runs both when
+      # ROUGHPROFIT_TEST_PG_URL is set. A throwaway database per run.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: roughprofit
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # what the plugin-host image runs
+      - name: Shallow-clone core for plugin_api and the core models the tests seed
+        run: git clone --depth 1 https://github.com/freePerro/gdx_dispatch.git _core
+      - name: Install core's requirement set (what the plugin-host image installs)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r _core/gdx_dispatch/requirements.txt pytest
+      - name: Run the roughprofit suite on SQLite and Postgres
+        env:
+          ROUGHPROFIT_TEST_PG_URL: postgresql://postgres:pw@localhost:5432/roughprofit
+        run: |
+          export JWT_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          PYTHONPATH="$PWD/_core:$PWD/gdx-plugin-roughprofit" \
+            python -m pytest gdx-plugin-roughprofit/tests -v

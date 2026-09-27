@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdx-plugin-roughprofit"
+version = "0.1.0"
+description = "Rough monthly profit from the bank feed, invoices and supplier statements, sorted by owner-written payee rules."
+requires-python = ">=3.11"
+dependencies = []
+
+# Registers under the gdx.modules entry-point group so plugin-host discovery
+# finds `manifest` after `pip install`.
+[project.entry-points."gdx.modules"]
+roughprofit = "gdx_plugin_roughprofit:manifest"
+
+[tool.setuptools]
+packages = ["gdx_plugin_roughprofit"]
+
+# Storefront listing — see tools/build_catalog.py. No permissions: the plugin
+# declares no events, schedules, browser or email.
+[tool.gdx.catalog]
+name = "Rough Profit"
+permissions = []
+requires = "gdx>=1.125.0"   # must equal the manifest's; CI compares them
+description = "Do we look profitable? One row per month from the bank feed, invoices and supplier statements, with payee rules you write. Owner-only unless the owner grants access."
+author = "GDX Dispatch"

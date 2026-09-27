@@ -33,6 +33,7 @@ PUBLISHED = [
     ("gdx-plugin-hvac", "gdx_plugin_hvac"),
     ("gdx-plugin-n8n", "gdx_plugin_n8n"),
     ("gdx-plugin-cellcomms", "gdx_plugin_cellcomms"),
+    ("gdx-plugin-roughprofit", "gdx_plugin_roughprofit"),
 ]
 
 

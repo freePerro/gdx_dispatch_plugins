@@ -15,6 +15,7 @@ see core's `ADR-013` (third-party module plugins) for the architecture.
 | [`gdx-plugin-hvac`](gdx-plugin-hvac) | Reference Catalog Pack (ADR-015) — contributes an HVAC catalog type + pricing strategy as data; no router. |
 | [`gdx-plugin-n8n`](gdx-plugin-n8n) | In-app n8n Automations console — subscribes to every business event, mirrors them into its own table, and renders Activity / Available Events / Connect / Setup screens. The WordPress-model integration surface for the n8n flagship. |
 | [`gdx-plugin-cellcomms`](gdx-plugin-cellcomms) | Texts and calls from the owner's personal Android cell, next to the Phone.com line — live incoming feed relayed by core's cell-gateway webhook, plus SMS Backup & Restore XML import for history and outgoing. Built in core PR #752, moved here 2026-09-20. |
+| [`gdx-plugin-roughprofit`](gdx-plugin-roughprofit) | "Do we look profitable?" — one row per month from the bank feed, invoices and supplier statements, with payee rules the owner writes. Read-only against core; owner-only unless the owner grants access. |
 
 > The proprietary `gdx-plugin-chi-pricing` plugin lives outside version control
 > and is **not** part of this repo.
@@ -102,8 +103,10 @@ venv.
 - `.github/workflows/contract.yml` — imports a plugin and asserts its manifest
   shape against the real `gdx_dispatch.plugin_api`. That surface is stdlib-only,
   so it shallow-clones core onto `PYTHONPATH` rather than installing it. Covers
-  `gdx-plugin-hvac` (manifest shape, stdlib-only) and `gdx-plugin-cellcomms`
-  (its whole suite, router and the core shim relay included). A router-bearing
+  `gdx-plugin-hvac` (manifest shape, stdlib-only), `gdx-plugin-cellcomms`
+  (its whole suite, router and the core shim relay included) and
+  `gdx-plugin-roughprofit` (its whole suite, on SQLite and a Postgres service).
+  A router-bearing
   plugin's job installs core's **requirement set** (`requirements.txt`, the
   same set the plugin-host image installs) and nothing else, so importing a
   library the image lacks fails in CI instead of silently dropping the plugin
