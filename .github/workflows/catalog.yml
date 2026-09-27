@@ -1,12 +1,20 @@
 # Publish the storefront catalog.
 #
 # This repo IS the curation authority for the in-app plugin storefront: a plugin
-# is listed if and only if it is merged here and released by this workflow.
+# is listed if and only if it is merged here and released by this workflow —
+# since 2026-09-27 the merge itself cuts the release (see "On a push to main").
 # Nothing else writes catalog.json.
 #
-# On a tag: build every published plugin's wheel, attach the wheels to the
-# GitHub Release, generate catalog.json pointing at those assets, and publish it
-# to GitHub Pages (served at the catalog domain the app fetches).
+# On a push to main: if anything listable changed since the newest v* tag, cut
+# the next minor tag and publish it IN THIS RUN. It cannot hand off to the tag
+# trigger below: a tag pushed with GITHUB_TOKEN never starts a workflow run
+# (https://docs.github.com/en/actions/concepts/security/github_token), so a
+# separate "auto-tag" workflow would tag and publish nothing.
+#
+# On a tag (hand-pushed): build every published plugin's wheel, attach the
+# wheels to the GitHub Release, generate catalog.json pointing at those assets,
+# and publish it to GitHub Pages (served at the catalog domain the app fetches).
+# The main-push path does exactly the same with the tag it just cut.
 #
 # On a PR: build and validate the catalog WITHOUT publishing, so a listing that
 # would be refused (declared dependency, unknown permission, drifted metadata)
@@ -15,11 +23,26 @@ name: catalog
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    # Plain vX.Y.Z only: a pre-release like v0.10.0-rc1 would publish and then
+    # become the base the automatic series counts from.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   pull_request:
 
+# Publishing runs one at a time: two quick merges must not both read the same
+# newest tag and race to push the same next one. The running publish is never
+# cancelled, but GitHub keeps only ONE pending run per group — a newer push
+# cancels the older pending one. A pending run never started, so it cut no tag.
+# Between two main pushes that is harmless: the survivor checks out a later
+# main commit that carries the earlier merge. A hand-pushed tag shares the
+# group, so it CAN cancel a pending main run; that merge then waits for the
+# next push to main, which diffs against the hand tag and picks it up.
+concurrency:
+  group: catalog-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write   # attach wheels to the release
+  contents: write   # push the tag; attach wheels to the release
   pages: write
   id-token: write
 
@@ -28,10 +51,104 @@ env:
   PLUGINS: gdx-plugin-example gdx-plugin-hvac gdx-plugin-n8n gdx-plugin-cellcomms gdx-plugin-roughprofit
 
 jobs:
-  catalog:
+  tag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+      new: ${{ steps.next.outputs.new }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # every tag and the history to diff against
+
+      - id: next
+        run: |
+          # Decides the tag only. It is pushed by the catalog job AFTER the
+          # listing is validated, so a validation failure leaves no dead tag.
+          # Plain vX.Y.Z tags only, newest by version. `|| true`: run steps use
+          # `bash -eo pipefail`, and grep matching nothing is not an error here.
+          semver() { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true; }
+          # Already tagged (a re-run after a failed publish, or a hand tag):
+          # publish that tag again rather than skip — skipping would leave a
+          # tag whose catalog never went out. A republish reuses the wheels
+          # already on the release ("Keep this tag's already-published wheels").
+          HAVE=$(git tag --points-at HEAD -l 'v*' | semver)
+          if [ -n "$HAVE" ]; then
+            echo "HEAD is already $HAVE; publishing it."
+            echo "tag=$HAVE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LAST=$(git tag -l 'v*' | semver)
+          if [ -z "$LAST" ]; then
+            echo "::error::no v*.*.* tag to bump from"; exit 1
+          fi
+          # Listable = what goes into a wheel or the catalog. A change outside
+          # these (the root README, another workflow, any *.md — so a status
+          # line edit is not a release) republishes nothing.
+          # $PLUGINS is unquoted on purpose: it is a space-separated path list.
+          set +e
+          # shellcheck disable=SC2086
+          git diff --quiet "$LAST" HEAD -- $PLUGINS tools CNAME .github/workflows/catalog.yml ':(glob,exclude)**/*.md'
+          RC=$?
+          set -e
+          case $RC in
+            0) ;;
+            1) CHANGED=1 ;;
+            *) echo "::error::git diff $LAST..HEAD failed (rc=$RC)"; exit 1 ;;
+          esac
+          if [ -z "${CHANGED:-}" ]; then
+            # Nothing new — but is $LAST actually what is live? A run that cut
+            # $LAST and then failed to publish leaves it stranded, and no later
+            # no-change merge would ever notice. Read the catalog at the URL
+            # prod and demo set in GDX_PLUGIN_CATALOG_URL (github.io, following
+            # its redirect; core's default custom-domain URL fails TLS today)
+            # and republish $LAST if the live file does not point at it.
+            # Unreadable counts as not live: a republish reuses $LAST's
+            # published wheels, so it is safe; skipping is not recoverable.
+            # $LAST is rebuilt from HEAD, which differs from $LAST's commit only
+            # in *.md — true while no pyproject declares `readme`.
+            LIVE_URL="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/catalog.json"
+            if curl -fsSL --max-time 30 "$LIVE_URL" | grep -q "/releases/download/$LAST/"; then
+              echo "Nothing listable changed since $LAST, and $LAST is live; not tagging."
+            else
+              echo "::warning::$LAST is not what $LIVE_URL serves; republishing it."
+              echo "tag=$LAST" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          IFS=. read -r MAJ MIN _ <<<"${LAST#v}"
+          NEXT="v${MAJ}.$((MIN + 1)).0"
+          echo "Will tag $NEXT (previous $LAST) at $(git rev-parse --short HEAD) once the listing validates"
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "new=true" >> "$GITHUB_OUTPUT"
+
+  catalog:
+    needs: tag
+    # A PR validates; a hand-pushed tag publishes; a main push publishes only
+    # when the tag job chose a tag. `!cancelled()` because a skipped `tag` (PR,
+    # tag push) would otherwise skip this job too.
+    if: >-
+      !cancelled() && needs.tag.result != 'failure' &&
+      (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/') || needs.tag.outputs.tag != '')
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release_tag.outputs.tag }}
+    steps:
+      - id: release_tag
+        env:
+          CUT_TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          # The tag being published, or empty on a PR (validate only).
+          case "$GITHUB_REF" in
+            refs/tags/*) TAG="$GITHUB_REF_NAME" ;;
+            *)           TAG="$CUT_TAG" ;;
+          esac
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the keep step diffs against the commit a release was built from
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"   # what the app (python:3.12-slim) and plugin-host (playwright noble, 3.12) images run
@@ -59,16 +176,86 @@ jobs:
       - name: Unit-test the catalog builder
         run: PYTHONPATH="$PWD/tools" python -m pytest tools/test_build_catalog.py -v
 
+      - name: Keep this tag's already-published wheels
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Never publish anything but the newest tag. Without this, re-running
+          # an old failed run (its tag-job output is reused) or hand-pushing a
+          # tag on an old commit would roll the live catalog back.
+          NEWEST=$( { git tag -l 'v*'; echo "$TAG"; } | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          if [ "$TAG" != "$NEWEST" ]; then
+            echo "::error::$TAG is older than existing tag $NEWEST; refusing to roll the catalog back."
+            exit 1
+          fi
+          # A published wheel is immutable. The build is not byte-reproducible
+          # (two builds of one commit hash differently), and core refuses a
+          # wheel whose sha256 differs from the catalog's — so overwriting an
+          # asset the live catalog points at breaks every install until the new
+          # catalog is live and cached copies expire. When this tag already
+          # has a wheel (a re-run, or a republish of a stranded tag), the
+          # catalog is built from THOSE bytes and the fresh one is dropped.
+          # Anything the release lacks is uploaded in the next step.
+          mkdir -p _published
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG has no release yet; every wheel is new."
+            exit 0
+          fi
+          # Reusing bytes is only right when they were built from this code. A
+          # tag force-moved onto different code (same plugin versions, so same
+          # wheel filenames) would otherwise list the NEW permissions against
+          # the OLD wheel. The release notes record the commit it was built
+          # from; anything beyond *.md between that and HEAD is refused.
+          # gh also finds DRAFT releases, whose assets are not public: a catalog
+          # pointing into one would 404 every install and then read as live.
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+            echo "::error::$TAG is a draft release; publish or delete it, then re-run."
+            exit 1
+          fi
+          # A release with no wheels (made by hand in the UI or with
+          # `gh release create`) has no bytes to mismatch: treat it as new.
+          if [ "$(gh release view "$TAG" --json assets --jq '[.assets[].name | select(endswith(".whl"))] | length')" = "0" ]; then
+            echo "$TAG has a release but no wheels yet; every wheel is new."
+            exit 0
+          fi
+          # CR stripped: a body edited in the web UI can come back CRLF. The
+          # LAST marker wins — the attach step appends, so a body copied from
+          # an older release keeps that release's marker above the real one.
+          # v0.1.0 and v0.2.0 predate the marker and are refused here: they
+          # can never be republished, only superseded by a new tag.
+          BUILT=$(gh release view "$TAG" --json body --jq .body | tr -d '\r' | sed -n 's/^Built from commit \([0-9a-f]\{40\}\)\.$/\1/p' | tail -n1)
+          if [ -z "$BUILT" ]; then
+            echo "::error::$TAG's release does not record the commit it was built from; cannot prove its wheels match this code. Cut a new tag."
+            exit 1
+          fi
+          set +e
+          # shellcheck disable=SC2086
+          git diff --quiet "$BUILT" HEAD -- $PLUGINS tools ':(glob,exclude)**/*.md'
+          RC=$?
+          set -e
+          if [ "$RC" != 0 ]; then
+            echo "::error::$TAG's wheels were built from $BUILT, and this code differs (rc=$RC). Bump the plugin version and let a new tag publish it."
+            exit 1
+          fi
+          gh release download "$TAG" --pattern '*.whl' --dir _published
+          for w in gdx-plugin-*/dist/*.whl; do
+            if [ -f "_published/$(basename "$w")" ]; then
+              cp "_published/$(basename "$w")" "$w"
+              echo "kept published $(basename "$w")"
+            fi
+          done
+
       - name: Generate catalog.json
         run: |
           # Wheels are served as release assets; the catalog is the index that
           # points at them. On a PR there is no tag, so a placeholder base URL
           # is used — the file is validated, never published.
-          TAG="${GITHUB_REF_NAME}"
-          case "$GITHUB_REF" in
-            refs/tags/*) BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" ;;
-            *)           BASE="https://example.invalid/pr-validation" ;;
-          esac
+          if [ -n "$TAG" ]; then
+            BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          else
+            BASE="https://example.invalid/pr-validation"
+          fi
           mkdir -p _site
           python tools/build_catalog.py --base-url "$BASE" --out _site/catalog.json $PLUGINS
           # Pages serves exactly what this artifact contains, so the custom
@@ -77,24 +264,73 @@ jobs:
           cp CNAME _site/CNAME
           cat _site/catalog.json
 
+      - name: Push the new tag
+        if: needs.tag.outputs.new == 'true'
+        run: |
+          # Only now that the listing validated — after "Generate catalog.json",
+          # the step that refuses a bad listing. On "Re-run failed jobs" the
+          # tag job's output is reused and the first attempt may already have
+          # pushed it: fine at HEAD, refused anywhere else.
+          # The rollback guard (see the keep step) runs here too, BEFORE the
+          # push: refusing after it would leave the dead tag this step exists
+          # to prevent. $TAG must sort at or above every existing tag.
+          NEWEST=$( { git tag -l 'v*'; echo "$TAG"; } | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          if [ "$TAG" != "$NEWEST" ]; then
+            echo "::error::$TAG is older than existing tag $NEWEST; not tagging."
+            exit 1
+          fi
+          AT=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)
+          if [ -z "$AT" ]; then
+            git tag "$TAG" HEAD
+            git push origin "refs/tags/$TAG"
+            echo "Tagged $TAG at $(git rev-parse --short HEAD)"
+          elif [ "$AT" = "$(git rev-parse HEAD)" ]; then
+            echo "$TAG already at HEAD (a re-run); not pushing again."
+          else
+            echo "::error::$TAG already exists at $AT, not at HEAD"; exit 1
+          fi
+
       - name: Attach wheels to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
-            --notes "Plugin wheels for the in-app storefront." || true
-          gh release upload "${GITHUB_REF_NAME}" gdx-plugin-*/dist/*.whl --clobber
+          # The "Built from commit" line is read back by the keep step above.
+          MARK="Built from commit $(git rev-parse HEAD)."
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" \
+              --notes "$(printf 'Plugin wheels for the in-app storefront.\n\n%s' "$MARK")"
+          elif [ -z "$(ls _published)" ]; then
+            # A release with no wheels yet (hand-made, or ours after a failed
+            # upload) that this run is filling: stamp it, so a later republish
+            # can prove the bytes match. A duplicate stamp of the same sha is
+            # harmless.
+            BODY=$(gh release view "$TAG" --json body --jq .body)
+            gh release edit "$TAG" --notes "$(printf '%s\n\n%s' "$BODY" "$MARK")"
+          fi
+          # Never --clobber: see "Keep this tag's already-published wheels".
+          NEW=()
+          for w in gdx-plugin-*/dist/*.whl; do
+            [ -f "_published/$(basename "$w")" ] || NEW+=("$w")
+          done
+          if [ ${#NEW[@]} -gt 0 ]; then
+            gh release upload "$TAG" "${NEW[@]}"
+          else
+            echo "every wheel is already on $TAG"
+          fi
 
       - name: Upload the catalog for Pages
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.TAG != ''
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
   publish:
     needs: catalog
-    if: startsWith(github.ref, 'refs/tags/')
+    # Explicit status check: on a hand-pushed tag the `tag` job is skipped, and
+    # a bare `if` carries an implicit success() that sees that skip through the
+    # whole needs chain — Pages would silently never deploy (actions/runner#2205).
+    if: ${{ !cancelled() && needs.catalog.result == 'success' && needs.catalog.outputs.tag != '' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

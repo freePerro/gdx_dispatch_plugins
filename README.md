@@ -46,6 +46,20 @@ core's `gdx_dispatch/docs/plugin_file_install.md`.
 plugin storefront if and only if it is merged here and published by the
 `catalog` workflow — nothing else writes `catalog.json`.
 
+**Merging is publishing.** Every push to `main` that changes a published
+plugin, `tools/`, `CNAME` or the catalog workflow (Markdown excluded — a
+README edit is not a release) cuts the next minor tag (`v0.2.0` → `v0.3.0`)
+and publishes the catalog in the same run — no hand-cut release. The publish
+does not wait for `build` or `contract` on that commit: those checks gate the
+PR, and a direct push to `main` skips them and goes live. A plain `vX.Y.Z` tag
+pushed by hand (`git push origin vX.Y.Z`) still publishes, but only if it is the
+newest tag — the workflow refuses to roll the catalog back to an older one.
+
+**Bump the plugin's `version` when its code changes.** The app offers an update
+only when the catalog's version is newer than the installed one, so a fix merged
+at the same version is published but never reaches a site that already has the
+plugin. Nothing in CI enforces the bump.
+
 To be listable, a plugin needs a `[tool.gdx.catalog]` table in its
 `pyproject.toml`:
 
