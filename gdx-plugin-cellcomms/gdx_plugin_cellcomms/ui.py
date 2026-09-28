@@ -12,8 +12,16 @@ UI = {
     "category": "customers",
     "screens": [
         {
+            "type": "threads",
+            "title": "Threads",
+            "endpoint": "/api/plugins/cellcomms/threads",
+            "messages_endpoint": "/api/plugins/cellcomms/threads/{thread_key}/messages",
+            "send_endpoint": "/api/plugins/cellcomms/send",
+            "search": {"param": "q", "placeholder": "Search conversations, contacts or texts"},
+        },
+        {
             "type": "list",
-            "title": "Texts",
+            "title": "All Texts",
             "endpoint": "/api/plugins/cellcomms/messages",
             "detail_endpoint": "/api/plugins/cellcomms/messages/{id}",
             "search": {"param": "q", "placeholder": "Search text, number or customer"},

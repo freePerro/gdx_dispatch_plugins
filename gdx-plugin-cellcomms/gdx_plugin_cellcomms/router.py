@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from gdx_dispatch.plugin_api.context import PluginContext, get_plugin_context, get_plugin_db
@@ -117,6 +117,114 @@ def _fmt_duration(seconds: int | None) -> str:
 def _fmt_ts(dt) -> str | None:
     return dt.isoformat() if dt else None
 
+
+
+
+@router.get("/threads")
+def list_threads(
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = 500,
+    ctx: PluginContext = Depends(get_plugin_context),
+    db: Session = Depends(get_plugin_db),
+) -> list[dict]:
+    q_filter = ""
+    params: dict[str, object] = {"company_id": ctx.tenant_id, "limit": limit}
+    if q:
+        q_filter = """
+            AND other_number IN (
+                SELECT DISTINCT other_number FROM plug_cellcomms_messages 
+                WHERE company_id = :company_id AND other_number IS NOT NULL AND (
+                    LOWER(other_number) LIKE :q_lower OR 
+                    LOWER(customer_name) LIKE :q_lower OR 
+                    LOWER(body) LIKE :q_lower
+                )
+            )
+        """
+        params["q_lower"] = f"%{q.lower()}%"
+
+    sql = f"""
+    WITH ranked AS (
+      SELECT 
+        id, other_number, direction, body, media_url, sent_at,
+        MAX(customer_id) OVER (PARTITION BY other_number) as cust_id,
+        MAX(customer_name) OVER (PARTITION BY other_number) as cust_name,
+        ROW_NUMBER() OVER (PARTITION BY other_number ORDER BY sent_at DESC, id DESC) as rn,
+        COUNT(*) OVER (PARTITION BY other_number) as cnt
+      FROM plug_cellcomms_messages
+      WHERE company_id = :company_id
+        AND other_number IS NOT NULL AND other_number != ''
+        {q_filter}
+    )
+    SELECT id, other_number, direction, body, media_url, sent_at, cust_id, cust_name, cnt
+    FROM ranked
+    WHERE rn = 1
+    ORDER BY sent_at DESC
+    LIMIT :limit
+    """
+    rows = db.execute(text(sql), params).all()
+    res = []
+    for r in rows:
+        sent_at_val = r[5]
+        if isinstance(sent_at_val, datetime):
+            sent_at_str = sent_at_val.isoformat()
+        else:
+            sent_at_str = str(sent_at_val) if sent_at_val else None
+
+        res.append({
+            "thread_key": r[1],
+            "number": r[1],
+            "customer_name": r[7] or "",
+            "customer_id": str(r[6]) if r[6] else None,
+            "message_count": int(r[8]),
+            "last_message_at": sent_at_str,
+            "last_message_body": r[3] or ("[Photo]" if r[4] else ""),
+            "last_message_direction": r[2],
+            "last_message_has_media": bool(r[4]),
+        })
+    return res
+
+
+@router.get("/threads/{thread_key}/messages")
+def get_thread_messages(
+    thread_key: str,
+    limit: int = 1000,
+    ctx: PluginContext = Depends(get_plugin_context),
+    db: Session = Depends(get_plugin_db),
+) -> list[dict]:
+    from gdx_plugin_cellcomms.matching import normalize_e164
+    e164 = normalize_e164(thread_key)
+    numbers = {thread_key.strip()}
+    if e164:
+        numbers.add(e164)
+        if e164.startswith("+1") and len(e164) == 12:
+            numbers.add(e164[2:])
+            numbers.add(e164[1:])
+
+    rows = (
+        db.query(CellMessage)
+        .filter(
+            CellMessage.company_id == ctx.tenant_id,
+            CellMessage.other_number.in_(list(numbers)),
+        )
+        .order_by(CellMessage.sent_at.asc().nullsfirst(), CellMessage.id.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "direction": r.direction,
+            "body": r.body or "",
+            "media_url": r.media_url,
+            "media_type": r.media_type,
+            "when": _fmt_ts(r.sent_at),
+            "sent_at": _fmt_ts(r.sent_at),
+            "customer_id": r.customer_id,
+            "customer_name": r.customer_name or "",
+            "number": r.other_number,
+        }
+        for r in rows
+    ]
 
 @router.get("/messages")
 def list_messages(

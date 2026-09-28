@@ -510,3 +510,50 @@ def test_get_message_and_send_message(db, tmp_path, monkeypatch):
     db.commit()
     detail_photo = get_message(message_id=res["id"], ctx=_ctx(), db=db)
     assert detail_photo["Attached Photo"] == "/api/plugins/cellcomms/media/test.jpg"
+
+
+def test_list_threads_and_thread_messages(db):
+    from gdx_plugin_cellcomms.models import CellMessage
+    from gdx_plugin_cellcomms.router import ingest_event, list_threads, get_thread_messages
+
+    cust = _seed_customer(db, "320-555-0134", name="Jane Door")
+    ingest_event(dict(SMS_EVENT), ctx=_ctx(), db=db)
+    
+    # Second message from Jane
+    ingest_event({
+        "kind": "sms",
+        "from": "(320) 555-0134",
+        "text": "Any updates on the door?",
+        "sentStamp": "1758100100000",
+    }, ctx=_ctx(), db=db)
+
+    # Message from another number
+    ingest_event({
+        "kind": "sms",
+        "from": "+16125559999",
+        "text": "Hello from Bob",
+        "sentStamp": "1758100050000",
+    }, ctx=_ctx(), db=db)
+
+    threads = list_threads(q=None, ctx=_ctx(), db=db)
+    assert len(threads) == 2
+    # Jane's thread is most recent (sentStamp 1758100100000)
+    assert threads[0]["thread_key"] == "+13205550134"
+    assert threads[0]["customer_name"] == "Jane Door"
+    assert threads[0]["customer_id"] == str(cust.id)
+    assert threads[0]["message_count"] == 2
+    assert threads[0]["last_message_body"] == "Any updates on the door?"
+
+    assert threads[1]["thread_key"] == "+16125559999"
+    assert threads[1]["message_count"] == 1
+
+    # Search filter
+    filtered = list_threads(q="updates", ctx=_ctx(), db=db)
+    assert len(filtered) == 1
+    assert filtered[0]["thread_key"] == "+13205550134"
+
+    # Get thread messages
+    msgs = get_thread_messages(thread_key="+13205550134", ctx=_ctx(), db=db)
+    assert len(msgs) == 2
+    assert msgs[0]["body"] == "Garage door is stuck halfway"
+    assert msgs[1]["body"] == "Any updates on the door?"
