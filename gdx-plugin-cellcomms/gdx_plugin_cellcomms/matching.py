@@ -25,7 +25,7 @@ import os
 import re
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 log = logging.getLogger(__name__)
@@ -129,22 +129,14 @@ def _customer_maps(db: Session) -> tuple[dict[str, tuple[str, str]], dict[str, s
 
 
 def rematch_unlinked(db: Session, company_id: str) -> dict[str, int]:
-    """Retro-match: link every unlinked row, refresh linked rows' names.
-
-    Linking exists because resolution at ingest is one-shot — a customer
-    created the day AFTER their first text would otherwise stay unlinked
-    forever (the hole the sms-caller-identity plan documents for phone_com).
-    The name refresh keeps the denormalized ``customer_name`` snapshot honest
-    after a rename. What this deliberately does NOT do: re-attribute a row
-    whose number now hash-matches a DIFFERENT customer — historical events
-    keep their historical link.
-    """
-    from gdx_plugin_cellcomms.models import CellCall, CellMessage
+    """Retro-match: link every unlinked row, refresh linked rows' names, sync contact names."""
+    from gdx_plugin_cellcomms.models import CellCall, CellContact, CellMessage
 
     by_hash, by_id = _customer_maps(db)
     linked = 0
     scanned = 0
     names_refreshed = 0
+    contacts_synced = 0
     # Cache per distinct number — one file/table repeats few numbers.
     hash_cache: dict[str, str | None] = {}
 
@@ -153,6 +145,27 @@ def rematch_unlinked(db: Session, company_id: str) -> dict[str, int]:
             e164 = normalize_e164(number)
             hash_cache[number] = search_hash(e164) if e164 else None
         return hash_cache[number]
+
+    # Map of number -> contact name from CellContact table
+    contact_map: dict[str, str] = {}
+    try:
+        for c in db.query(CellContact).filter(CellContact.company_id == company_id):
+            if c.phone_number and c.name:
+                contact_map[c.phone_number] = c.name
+
+        # Check CellCall for any contact names not yet in contact_map
+        for call in db.query(CellCall).filter(
+            CellCall.company_id == company_id,
+            CellCall.contact_name.isnot(None),
+            CellCall.contact_name != "",
+        ):
+            num = call.other_number
+            if num and num not in contact_map and call.contact_name:
+                contact_map[num] = call.contact_name
+                db.add(CellContact(company_id=company_id, phone_number=num, name=call.contact_name))
+                contacts_synced += 1
+    except Exception as exc:
+        log.warning("cellcomms.rematch_contacts_sync_skipped: %s", exc)
 
     for model in (CellMessage, CellCall):
         for r in db.query(model).filter(model.company_id == company_id):
@@ -168,5 +181,15 @@ def rematch_unlinked(db: Session, company_id: str) -> dict[str, int]:
                 if current and current != r.customer_name:
                     r.customer_name = current
                     names_refreshed += 1
+
+            # Sync contact_name if empty and known
+            if hasattr(r, "contact_name") and (not r.contact_name) and r.other_number in contact_map:
+                r.contact_name = contact_map[r.other_number]
+
     db.commit()
-    return {"scanned": scanned, "linked": linked, "names_refreshed": names_refreshed}
+    return {
+        "scanned": scanned,
+        "linked": linked,
+        "names_refreshed": names_refreshed,
+        "contacts_synced": contacts_synced,
+    }

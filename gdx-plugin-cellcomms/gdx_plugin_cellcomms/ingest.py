@@ -1,81 +1,93 @@
-"""Normalize one android-nomad-gateway webhook event into a row dict.
+"""Nomad Gateway webhook payload → row dicts for plugin tables.
 
-The phone is configured (see README) to POST exactly these template shapes:
+Contract with the cell-gateway forwarder:
+  - Phone posts JSON to /api/cell-gateway/sms or /call (core, routers/cell_gateway.py).
+  - Forwarder verifies the bearer token (SHARED_CELL_SECRET against
+    the header, matching ADR-013 single-tenant boundary), then re-POSTs the
+    parsed dict to /api/plugins/cellcomms/ingest with X-Company-Id stamped.
+  - Ingest never trusts anything caller-supplied except the payload fields
+    and the company header; dedupe_key is derived entirely from message content.
 
-  {"kind":"sms","from":"%from%","text":"%text%","sentStamp":"%sentStamp%",
-   "receivedStamp":"%receivedStamp%","sim":"%sim%"}
-  {"kind":"call","from":"%from%","contact":"%contact%","timestamp":"%timestamp%",
-   "duration":"%duration%"}
-
-Nomad forwards INCOMING events only, so direction is always "in" here; the
-backfill (backfill.py) owns outgoing history. Timestamps arrive as epoch millis
-in practice but the parser is liberal (epoch s/ms, ISO-8601) — a stamp we can't
-read becomes NULL sent_at, never a dropped event.
-
-Dedupe keys hash message-intrinsic fields at SECOND granularity, in the exact
-format backfill.py uses, so a later XML backfill of the same message/call is a
-no-op instead of a duplicate.
+Fields per kind:
+  sms:  kind="sms", from, text, sentStamp (or receivedStamp), sim
+  call: kind="call", from, duration, timestamp, sim, contact
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Any
+import logging
+import re
 
-from gdx_plugin_cellcomms.matching import normalize_e164
+log = logging.getLogger(__name__)
 
 
-def parse_ts(value: Any) -> datetime | None:
-    """Epoch seconds/millis (int or digit-string) or ISO-8601 → aware UTC."""
-    if value is None:
+def canonical_number(raw: object) -> str | None:
+    """Best-effort canonical form of a phone number: E.164 if possible, else
+    the stripped string. None on missing/empty. Never throws."""
+    if raw is None:
         return None
-    s = str(value).strip()
+    s = str(raw).strip()
     if not s:
         return None
-    if s.lstrip("-").isdigit():
+    digits = re.sub(r"\D", "", s)
+    if not digits:
+        return s
+    if s.startswith("+"):
+        return f"+{digits}"
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return s
+
+
+def parse_ts(raw: object) -> datetime | None:
+    """Parse epoch millis or ISO-8601 string to timezone-aware UTC datetime."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    if s.isdigit():
         try:
-            n = int(s)
-        except ValueError:
-            return None
-        if abs(n) > 100_000_000_000:  # millis, not seconds
-            n = n // 1000
-        try:
-            return datetime.fromtimestamp(n, tz=timezone.utc)
-        except (OverflowError, OSError, ValueError):
+            val = int(s)
+            # epoch seconds vs millis heuristic (10 digits vs 13 digits)
+            if val < 100_000_000_000:
+                val *= 1000
+            return datetime.fromtimestamp(val / 1000.0, tz=timezone.utc)
+        except (ValueError, OSError, OverflowError):
             return None
     try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        # ISO-8601 with or without Z
+        clean = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean)
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
 
 
-def ts_token(dt: datetime | None, raw: object = None) -> str:
-    """The timestamp part of a dedupe key: epoch seconds when parseable, else
-    the RAW stamp string. Without the fallback, two DIFFERENT texts with
-    unreadable stamps (same number, same body) hash to one key and silently
-    collapse — audit finding, 2026-09-18. The raw string keeps a redelivery of
-    the same event stable while keeping distinct events distinct."""
+def ts_token(dt: datetime | None, raw: object) -> str:
+    """Stable token representing a timestamp for dedupe keys.
+
+    Prefers epoch-seconds from parsed UTC datetime so different string
+    representations of the same instant hash identically. Falls back to
+    the stripped raw string if unparseable.
+    """
     if dt is not None:
         return str(int(dt.timestamp()))
     return str(raw or "").strip()
 
 
-def message_dedupe_key(direction: str, number: str, ts: str, body: str) -> str:
-    payload = f"sms|{direction}|{number}|{ts}|{body or ''}"
-    return hashlib.sha256(payload.encode()).hexdigest()
+def message_dedupe_key(direction: str, other_number: str | None, ts_tok: str, body: str) -> str:
+    seed = f"{direction}|{other_number or ''}|{ts_tok}|{body}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
-def call_dedupe_key(direction: str, number: str, ts: str) -> str:
-    payload = f"call|{direction}|{number}|{ts}"
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def canonical_number(raw: str | None) -> str:
-    """E.164 when parseable, else the raw string — one rule for storage AND
-    dedupe keys, so webhook and backfill spellings of a number converge."""
-    return normalize_e164(raw) or (raw or "").strip()
+def call_dedupe_key(direction: str, other_number: str | None, ts_tok: str) -> str:
+    seed = f"{direction}|{other_number or ''}|{ts_tok}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
 def event_to_row(payload: dict) -> dict | None:
@@ -93,10 +105,12 @@ def event_to_row(payload: dict) -> dict | None:
         sent_at = parse_ts(payload.get("sentStamp")) or parse_ts(payload.get("receivedStamp"))
         body = str(payload.get("text") or "")
         token = ts_token(sent_at, payload.get("sentStamp") or payload.get("receivedStamp"))
+        contact = str(payload.get("contact") or payload.get("contact_name") or "").strip() or None
         return {
             "kind": "sms",
             "direction": "in",
             "other_number": number,
+            "contact_name": contact,
             "body": body,
             "sim": (str(payload.get("sim")) or None) if payload.get("sim") is not None else None,
             "sent_at": sent_at,
@@ -111,7 +125,7 @@ def event_to_row(payload: dict) -> dict | None:
             duration = int(str(payload.get("duration")).strip())
         except (ValueError, TypeError, AttributeError):
             duration = None
-        contact = str(payload.get("contact") or "").strip() or None
+        contact = str(payload.get("contact") or payload.get("contact_name") or "").strip() or None
         return {
             "kind": "call",
             "direction": "in",

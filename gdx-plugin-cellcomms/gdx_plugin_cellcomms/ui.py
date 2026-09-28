@@ -17,6 +17,7 @@ UI = {
             "endpoint": "/api/plugins/cellcomms/threads",
             "messages_endpoint": "/api/plugins/cellcomms/threads/{thread_key}/messages",
             "send_endpoint": "/api/plugins/cellcomms/send",
+            "contact_endpoint": "/api/plugins/cellcomms/threads/{thread_key}/contact",
             "search": {"param": "q", "placeholder": "Search conversations, contacts or texts"},
         },
         {
@@ -24,12 +25,12 @@ UI = {
             "title": "All Texts",
             "endpoint": "/api/plugins/cellcomms/messages",
             "detail_endpoint": "/api/plugins/cellcomms/messages/{id}",
-            "search": {"param": "q", "placeholder": "Search text, number or customer"},
+            "search": {"param": "q", "placeholder": "Search text, number or name"},
             "columns": [
                 {"field": "when", "label": "When"},
                 {"field": "direction", "label": ""},
                 {"field": "number", "label": "Number"},
-                {"field": "customer", "label": "Customer"},
+                {"field": "customer", "label": "Customer / Contact"},
                 {"field": "body", "label": "Message"},
                 {"field": "media_url", "label": "Photo", "type": "image"},
             ],
@@ -51,7 +52,7 @@ UI = {
                 {"field": "when", "label": "When"},
                 {"field": "type", "label": "Type"},
                 {"field": "number", "label": "Number"},
-                {"field": "customer", "label": "Customer"},
+                {"field": "customer", "label": "Customer / Contact"},
                 {"field": "duration", "label": "Duration"},
             ],
         },
@@ -69,7 +70,7 @@ UI = {
             # Changed a customer's phone number? Re-run matching by hand —
             # only customer CREATION re-links automatically today.
             "secondary_action": {
-                "label": "Re-match customers now",
+                "label": "Re-match customers & contacts now",
                 "endpoint": "/api/plugins/cellcomms/rematch",
             },
         },

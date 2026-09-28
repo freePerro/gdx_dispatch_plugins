@@ -210,8 +210,10 @@ def ingest_backup_xml(db: Session, company_id: str, data: bytes) -> BackfillResu
                     el.clear()
                     continue
             cid, cname = _customer(number)
+            c_name_val = (el.get("contact_name") or "").strip() or None
             db.add(CellMessage(
                 company_id=company_id, direction=direction, other_number=number,
+                contact_name=c_name_val,
                 body=body, sent_at=ts, customer_id=cid, customer_name=cname,
                 source="backfill", dedupe_key=key, raw_payload=_attrs_json(el),
             ))

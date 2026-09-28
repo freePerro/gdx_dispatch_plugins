@@ -25,12 +25,13 @@ class CellMessage(PluginBase):
     company_id = Column(String(64), nullable=False, index=True)
     direction = Column(String(3), nullable=False)  # in / out
     other_number = Column(String(40), nullable=True, index=True)  # E.164 when parseable
+    contact_name = Column(String(120), nullable=True)  # phone contact label or custom name
     body = Column(Text, nullable=True)
     sim = Column(String(20), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True, index=True)
     customer_id = Column(String(36), nullable=True, index=True)
     customer_name = Column(String(200), nullable=True)
-    source = Column(String(10), nullable=False)  # webhook / backfill
+    source = Column(String(10), nullable=False)  # webhook / backfill / app
     dedupe_key = Column(String(64), unique=True, nullable=False)
     raw_payload = Column(Text, nullable=True)
     media_url = Column(Text, nullable=True)
@@ -64,3 +65,15 @@ class CellCall(PluginBase):
     media_url = Column(Text, nullable=True)
     media_type = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CellContact(PluginBase):
+    """Known phone contacts and manual name overrides per company."""
+    __tablename__ = "plug_cellcomms_contacts"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(String(64), nullable=False, index=True)
+    phone_number = Column(String(40), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

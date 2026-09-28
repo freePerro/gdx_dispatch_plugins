@@ -31,14 +31,14 @@ TENANT = "t-cell-1"
 
 @pytest.fixture
 def db():
-    from gdx_plugin_cellcomms.models import CellCall, CellMessage
+    from gdx_plugin_cellcomms.models import CellCall, CellContact, CellMessage
 
     from gdx_dispatch.models.tenant_models import Customer
 
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    for table in (Customer.__table__, CellMessage.__table__, CellCall.__table__):
+    for table in (Customer.__table__, CellMessage.__table__, CellCall.__table__, CellContact.__table__):
         table.create(engine, checkfirst=True)
     # autoflush=False: EXACTLY core/database.py's SessionLocal config — the
     # 2026-09-18 re-audit caught autoflush=True fixtures masking a prod-only
@@ -514,7 +514,7 @@ def test_get_message_and_send_message(db, tmp_path, monkeypatch):
 
 def test_list_threads_and_thread_messages(db):
     from gdx_plugin_cellcomms.models import CellMessage
-    from gdx_plugin_cellcomms.router import ingest_event, list_threads, get_thread_messages
+    from gdx_plugin_cellcomms.router import ingest_event, list_threads, get_thread_messages, list_messages
 
     cust = _seed_customer(db, "320-555-0134", name="Jane Door")
     ingest_event(dict(SMS_EVENT), ctx=_ctx(), db=db)
@@ -557,3 +557,22 @@ def test_list_threads_and_thread_messages(db):
     assert len(msgs) == 2
     assert msgs[0]["body"] == "Garage door is stuck halfway"
     assert msgs[1]["body"] == "Any updates on the door?"
+    assert msgs[0]["display_name"] == "Jane Door"
+
+    # Test setting contact name for unknown number
+    from gdx_plugin_cellcomms.router import ContactPayload, update_thread_contact
+    update_thread_contact("+16125559999", ContactPayload(name="Bob Builder"), ctx=_ctx(), db=db)
+    threads_after = list_threads(q=None, ctx=_ctx(), db=db)
+    bob_thread = next(t for t in threads_after if t["thread_key"] == "+16125559999")
+    assert bob_thread["display_name"] == "Bob Builder"
+    assert bob_thread["contact_name"] == "Bob Builder"
+
+    # Search by contact name
+    bob_search = list_threads(q="Builder", ctx=_ctx(), db=db)
+    assert len(bob_search) == 1
+    assert bob_search[0]["thread_key"] == "+16125559999"
+
+    # All texts list displays contact name in customer column
+    texts = list_messages(q=None, ctx=_ctx(), db=db)
+    bob_text = next(t for t in texts if t["number"] == "+16125559999")
+    assert bob_text["customer"] == "Bob Builder"
