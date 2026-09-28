@@ -37,7 +37,8 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_BACKUP_BYTES = 100 * 1024 * 1024  # a decade of texts is tens of MB
-LIST_LIMIT = 200
+DEFAULT_LIST_LIMIT = 5000
+MAX_LIST_LIMIT = 20000
 
 MEDIA_DIR = Path(os.getenv("CELL_MEDIA_DIR", "/plugins/_media"))
 try:
@@ -120,6 +121,7 @@ def _fmt_ts(dt) -> str | None:
 @router.get("/messages")
 def list_messages(
     q: str | None = Query(default=None, max_length=100),
+    limit: int = DEFAULT_LIST_LIMIT,
     ctx: PluginContext = Depends(get_plugin_context),
     db: Session = Depends(get_plugin_db),
 ) -> list[dict]:
@@ -131,7 +133,7 @@ def list_messages(
             CellMessage.other_number.ilike(like),
             CellMessage.customer_name.ilike(like),
         ))
-    rows = query.order_by(CellMessage.sent_at.desc().nullslast()).limit(LIST_LIMIT).all()
+    rows = query.order_by(CellMessage.sent_at.desc().nullslast()).limit(limit).all()
     return [
         {
             "id": r.id,
@@ -149,6 +151,7 @@ def list_messages(
 @router.get("/calls")
 def list_calls(
     q: str | None = Query(default=None, max_length=100),
+    limit: int = DEFAULT_LIST_LIMIT,
     ctx: PluginContext = Depends(get_plugin_context),
     db: Session = Depends(get_plugin_db),
 ) -> list[dict]:
@@ -160,7 +163,7 @@ def list_calls(
             CellCall.contact_name.ilike(like),
             CellCall.customer_name.ilike(like),
         ))
-    rows = query.order_by(CellCall.started_at.desc().nullslast()).limit(LIST_LIMIT).all()
+    rows = query.order_by(CellCall.started_at.desc().nullslast()).limit(limit).all()
     return [
         {
             "when": _fmt_ts(r.started_at),
