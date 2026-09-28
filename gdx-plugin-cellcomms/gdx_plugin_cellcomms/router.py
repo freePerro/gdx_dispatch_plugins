@@ -129,7 +129,7 @@ def list_threads(
 ) -> list[dict]:
     q_filter = ""
     params: dict[str, object] = {"company_id": ctx.tenant_id, "limit": limit}
-    if q:
+    if q and isinstance(q, str):
         q_filter = """
             AND other_number IN (
                 SELECT DISTINCT other_number FROM plug_cellcomms_messages 
@@ -234,7 +234,7 @@ def list_messages(
     db: Session = Depends(get_plugin_db),
 ) -> list[dict]:
     query = db.query(CellMessage).filter(CellMessage.company_id == ctx.tenant_id)
-    if q:
+    if q and isinstance(q, str):
         like = f"%{q}%"
         query = query.filter(or_(
             CellMessage.body.ilike(like),
@@ -264,7 +264,7 @@ def list_calls(
     db: Session = Depends(get_plugin_db),
 ) -> list[dict]:
     query = db.query(CellCall).filter(CellCall.company_id == ctx.tenant_id)
-    if q:
+    if q and isinstance(q, str):
         like = f"%{q}%"
         query = query.filter(or_(
             CellCall.other_number.ilike(like),
