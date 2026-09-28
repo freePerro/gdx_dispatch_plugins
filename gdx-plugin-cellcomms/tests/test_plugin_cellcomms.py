@@ -261,7 +261,7 @@ def test_list_endpoints_return_bare_arrays(db):
     msgs = list_messages(q=None, ctx=_ctx(), db=db)
     calls = list_calls(q=None, ctx=_ctx(), db=db)
     assert isinstance(msgs, list) and isinstance(calls, list)
-    assert set(msgs[0]) == {"when", "direction", "number", "customer", "body"}
+    assert set(msgs[0]) == {"id", "when", "direction", "number", "customer", "body", "media_url"}
     assert set(calls[0]) == {"when", "type", "number", "customer", "duration"}
     # server-side search actually filters
     assert list_messages(q="stuck", ctx=_ctx(), db=db)
@@ -486,3 +486,27 @@ def test_rematch_refreshes_renamed_customer(db):
     row = db.execute(select(CellMessage)).scalars().one()
     assert row.customer_name == "New Name"
     assert row.customer_id == str(cust.id)
+
+
+def test_get_message_and_send_message(db, tmp_path, monkeypatch):
+    from gdx_plugin_cellcomms.router import get_message, send_message, SendPayload
+    from gdx_plugin_cellcomms.models import CellMessage
+
+    res = send_message(SendPayload(number="+13205550134", body="Testing outbound"), ctx=_ctx(), db=db)
+    assert res["status"] == "ok"
+    assert res["id"] is not None
+
+    msg = db.query(CellMessage).get(res["id"])
+    assert msg.direction == "out"
+    assert msg.body == "Testing outbound"
+    assert msg.source == "app"
+
+    detail = get_message(message_id=res["id"], ctx=_ctx(), db=db)
+    assert "Message Details" in detail
+    assert detail["Message Details"]["Direction"] == "Outgoing"
+    assert detail["Message Content"] == "Testing outbound"
+
+    msg.media_url = "/api/plugins/cellcomms/media/test.jpg"
+    db.commit()
+    detail_photo = get_message(message_id=res["id"], ctx=_ctx(), db=db)
+    assert detail_photo["Attached Photo"] == "/api/plugins/cellcomms/media/test.jpg"

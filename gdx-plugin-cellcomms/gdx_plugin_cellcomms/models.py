@@ -33,6 +33,8 @@ class CellMessage(PluginBase):
     source = Column(String(10), nullable=False)  # webhook / backfill
     dedupe_key = Column(String(64), unique=True, nullable=False)
     raw_payload = Column(Text, nullable=True)
+    media_url = Column(Text, nullable=True)
+    media_type = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -59,4 +61,6 @@ class CellCall(PluginBase):
     # The backup element's key, recorded at enrichment (NULL = never enriched).
     backfill_key = Column(String(64), unique=True, nullable=True)
     raw_payload = Column(Text, nullable=True)
+    media_url = Column(Text, nullable=True)
+    media_type = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

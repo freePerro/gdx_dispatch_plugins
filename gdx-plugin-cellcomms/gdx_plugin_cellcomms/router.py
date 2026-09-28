@@ -12,10 +12,17 @@ to the DataTable — an {"items": [...]} envelope renders zero rows).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import hashlib
 import logging
+import mimetypes
+import os
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -31,6 +38,16 @@ router = APIRouter()
 
 MAX_BACKUP_BYTES = 100 * 1024 * 1024  # a decade of texts is tens of MB
 LIST_LIMIT = 200
+
+MEDIA_DIR = Path(os.getenv("CELL_MEDIA_DIR", "/plugins/_media"))
+try:
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+class SendPayload(BaseModel):
+    number: str
+    body: str
 
 
 @router.post("/ingest")
@@ -117,11 +134,13 @@ def list_messages(
     rows = query.order_by(CellMessage.sent_at.desc().nullslast()).limit(LIST_LIMIT).all()
     return [
         {
+            "id": r.id,
             "when": _fmt_ts(r.sent_at),
             "direction": "→ out" if r.direction == "out" else "← in",
             "number": r.other_number,
             "customer": r.customer_name or "",
             "body": r.body,
+            "media_url": r.media_url,
         }
         for r in rows
     ]
@@ -152,3 +171,77 @@ def list_calls(
         }
         for r in rows
     ]
+
+
+@router.get("/messages/{message_id}")
+def get_message(
+    message_id: int,
+    ctx: PluginContext = Depends(get_plugin_context),
+    db: Session = Depends(get_plugin_db),
+) -> dict:
+    msg = db.query(CellMessage).filter(
+        CellMessage.id == message_id,
+        CellMessage.company_id == ctx.tenant_id,
+    ).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    sections = {
+        "Message Details": {
+            "Direction": "Outgoing" if msg.direction == "out" else "Incoming",
+            "Number": msg.other_number or "",
+            "Customer": msg.customer_name or "Unlinked",
+            "Date / Time": _fmt_ts(msg.sent_at) or "",
+            "Source": msg.source,
+        },
+        "Message Content": msg.body or "(No text body)",
+    }
+    if msg.media_url:
+        sections["Attached Photo"] = msg.media_url
+    return sections
+
+
+@router.get("/media/{filename}")
+def get_media_file(filename: str):
+    safe_name = os.path.basename(filename)
+    path = MEDIA_DIR / safe_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Media file not found")
+    media_type, _ = mimetypes.guess_type(str(path))
+    return FileResponse(str(path), media_type=media_type or "image/jpeg")
+
+
+@router.post("/send")
+def send_message(
+    payload: SendPayload,
+    ctx: PluginContext = Depends(get_plugin_context),
+    db: Session = Depends(get_plugin_db),
+) -> dict:
+    if not payload.number or not payload.number.strip():
+        raise HTTPException(status_code=422, detail="Phone number is required")
+    if not payload.body or not payload.body.strip():
+        raise HTTPException(status_code=422, detail="Message body is required")
+
+    from gdx_plugin_cellcomms.matching import normalize_e164
+    clean_number = normalize_e164(payload.number) or payload.number.strip()
+
+    now = datetime.now(timezone.utc)
+    ts_str = str(int(now.timestamp() * 1000))
+    dedupe_key = hashlib.sha256(f"out|{clean_number}|{ts_str}|{payload.body}".encode()).hexdigest()
+
+    cid, cname = match_customer(db, clean_number)
+    msg = CellMessage(
+        company_id=ctx.tenant_id,
+        direction="out",
+        other_number=clean_number,
+        body=payload.body.strip(),
+        sent_at=now,
+        customer_id=cid,
+        customer_name=cname,
+        source="app",
+        dedupe_key=dedupe_key,
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return {"status": "ok", "id": msg.id, "to": clean_number}

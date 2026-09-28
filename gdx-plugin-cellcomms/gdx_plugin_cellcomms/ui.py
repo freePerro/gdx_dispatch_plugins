@@ -15,6 +15,7 @@ UI = {
             "type": "list",
             "title": "Texts",
             "endpoint": "/api/plugins/cellcomms/messages",
+            "detail_endpoint": "/api/plugins/cellcomms/messages/{id}",
             "search": {"param": "q", "placeholder": "Search text, number or customer"},
             "columns": [
                 {"field": "when", "label": "When"},
@@ -22,7 +23,16 @@ UI = {
                 {"field": "number", "label": "Number"},
                 {"field": "customer", "label": "Customer"},
                 {"field": "body", "label": "Message"},
+                {"field": "media_url", "label": "Photo", "type": "image"},
             ],
+            "create": {
+                "endpoint": "/api/plugins/cellcomms/send",
+                "submit_label": "Send Text",
+                "fields": [
+                    {"name": "number", "label": "To Number", "type": "text", "required": True},
+                    {"name": "body", "label": "Message", "type": "textarea", "required": True, "rows": 3},
+                ],
+            },
         },
         {
             "type": "list",
