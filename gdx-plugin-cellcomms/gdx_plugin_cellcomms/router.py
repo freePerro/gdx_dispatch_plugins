@@ -201,7 +201,7 @@ def get_message(
     return sections
 
 
-@router.get("/media/{filename}")
+@router.api_route("/media/{filename}", methods=["GET", "HEAD"])
 def get_media_file(filename: str):
     safe_name = os.path.basename(filename)
     path = MEDIA_DIR / safe_name
